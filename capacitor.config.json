@@ -2,9 +2,15 @@
   "appId": "com.amarbangladesh.app",
   "appName": "আমার বাংলাদেশ",
   "webDir": "www",
-  "server": { "androidScheme": "https" },
+  "server": {
+    "url": "https://adnan1497.github.io/My-bangladesh-app/MyBangladesh_App.html",
+    "androidScheme": "https",
+    "cleartext": false,
+    "allowNavigation": ["adnan1497.github.io", "*.supabase.co"]
+  },
   "android": { "allowMixedContent": false },
   "plugins": {
     "LocalNotifications": { "smallIcon": "ic_stat_icon_config_sample", "iconColor": "#006a4e" }
   }
 }
+
