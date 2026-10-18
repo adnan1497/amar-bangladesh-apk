@@ -1,0 +1,66 @@
+name: APK তৈরি করুন
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: ফাইল সাজানো (www ফোল্ডার)
+        run: |
+          mkdir -p www
+          for f in index.html privacy.html icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png; do
+            if [ -f "$f" ]; then mv "$f" www/; fi
+          done
+          sed -i 's#^ROOT = .*#ROOT = os.path.dirname(os.path.abspath(__file__))#' prepare.py
+          ls -la www
+
+      - name: নির্ভরতা ইনস্টল
+        run: npm install --no-audit --no-fund
+
+      - name: সর্বশেষ অ্যাপ নামানো (পাওয়া না গেলে আপলোড করা কপি থাকবে)
+        run: |
+          B="https://adnan1497.github.io/My-bangladesh-app"
+          curl -fsSL "$B/MyBangladesh_App.html" -o /tmp/app.html && cp /tmp/app.html www/index.html || echo "Pages থেকে আনা যায়নি — আপলোড করা কপি ব্যবহার হবে"
+          grep -c "nativeAlarmSync" www/index.html || echo "WARNING - এই কপিতে নেটিভ-অ্যালার্ম কোড নেই"
+
+      - name: অ্যান্ড্রয়েড প্রকল্প বানানো
+        run: npx cap add android
+
+      - name: Firebase কনফিগ (পুশ নোটিফিকেশন)
+        run: |
+          if [ -f google-services.json ]; then cp google-services.json android/app/google-services.json && echo "google-services.json বসানো হয়েছে"; else echo "WARNING - google-services.json পাওয়া যায়নি, পুশ কাজ করবে না"; fi
+
+      - name: আইকন, শব্দ, অনুমতি
+        run: |
+          pip install pillow
+          python3 prepare.py
+
+      - name: সিঙ্ক
+        run: npx cap sync android
+
+      - name: APK বিল্ড
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amar-bangladesh-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

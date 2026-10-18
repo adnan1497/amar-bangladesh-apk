@@ -25,6 +25,26 @@ def make_alarm(path, secs=30, sr=22050):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(bytes(frames))
 make_alarm(os.path.join(RES, 'raw/alarm.wav'))
 
+# ---------- নতুন "কথা"-র নোটিফিকেশন শব্দ (পুশের জন্য, জোরালো তিন-সুরের ঘণ্টা) ----------
+def make_msg(path, sr=22050):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    notes = [(784.0, 0.00), (1047.0, 0.22), (1319.0, 0.44), (784.0, 0.95), (1047.0, 1.17), (1319.0, 1.39)]
+    total = 2.2
+    frames = bytearray()
+    for i in range(int(total * sr)):
+        t = i / sr
+        v = 0.0
+        for f, st in notes:
+            if t >= st:
+                dt = t - st
+                env = min(1.0, dt / 0.01) * math.exp(-dt * 5.0)
+                v += env * (math.sin(2 * math.pi * f * t) + 0.35 * math.sin(2 * math.pi * 2 * f * t) + 0.15 * math.sin(2 * math.pi * 3 * f * t))
+        v = max(-1.0, min(1.0, v * 0.75))
+        frames += struct.pack('<h', int(v * 32000))
+    with wave.open(path, 'wb') as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(bytes(frames))
+make_msg(os.path.join(RES, 'raw/msg.wav'))
+
 # ---------- আইকন ----------
 img = Image.open(SRC).convert('RGBA')
 legacy = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
@@ -60,5 +80,10 @@ if 'android.permission.INTERNET' in m:
     m = re.sub(r'(<uses-permission android:name="android.permission.INTERNET"\s*/>)', r'\1' + add.replace('\\', '\\\\'), m, count=1)
 else:
     m = m.replace('</manifest>', add + '\n</manifest>')
+# পুশ নোটিফিকেশনের ডিফল্ট চ্যানেল ও আইকন
+meta = ('\n        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="msg" />'
+        '\n        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_icon_config_sample" />')
+if 'default_notification_channel_id' not in m:
+    m = re.sub(r'(<application\b[^>]*>)', lambda mo: mo.group(1) + meta, m, count=1)
 open(MAN, 'w', encoding='utf-8').write(m)
 print('prepare ok')
