@@ -41,6 +41,10 @@ jobs:
       - name: অ্যান্ড্রয়েড প্রকল্প বানানো
         run: npx cap add android
 
+      - name: Firebase কনফিগ (পুশ নোটিফিকেশন)
+        run: |
+          if [ -f google-services.json ]; then cp google-services.json android/app/google-services.json && echo "google-services.json বসানো হয়েছে"; else echo "WARNING - google-services.json পাওয়া যায়নি, পুশ কাজ করবে না"; fi
+
       - name: আইকন, শব্দ, অনুমতি
         run: |
           pip install pillow
