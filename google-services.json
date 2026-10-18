@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "68527782506",
+    "project_id": "my-bangladesh-app",
+    "storage_bucket": "my-bangladesh-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:68527782506:android:0093dbc69f4a16a716e813",
+        "android_client_info": {
+          "package_name": "com.amarbangladesh.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQMw99C6mnWKZXVyomupqYJ4qPdMDGbSk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
