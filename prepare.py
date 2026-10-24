@@ -74,7 +74,7 @@ for d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']:
 # ---------- অনুমতি ----------
 m = open(MAN, encoding='utf-8').read()
 need = ['android.permission.POST_NOTIFICATIONS', 'android.permission.SCHEDULE_EXACT_ALARM', 'android.permission.USE_EXACT_ALARM',
-        'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.VIBRATE', 'android.permission.WAKE_LOCK', 'android.permission.USE_FULL_SCREEN_INTENT']
+        'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.VIBRATE', 'android.permission.WAKE_LOCK', 'android.permission.USE_FULL_SCREEN_INTENT', 'android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION']
 add = ''.join('\n    <uses-permission android:name="%s" />' % p for p in need if p not in m)
 if 'android.permission.INTERNET' in m:
     m = re.sub(r'(<uses-permission android:name="android.permission.INTERNET"\s*/>)', r'\1' + add.replace('\\', '\\\\'), m, count=1)
