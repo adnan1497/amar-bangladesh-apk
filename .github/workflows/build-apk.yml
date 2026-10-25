@@ -59,6 +59,12 @@ jobs:
           pip install pillow
           python3 prepare.py
 
+      - name: স্থায়ী সাইন-কী ও সংস্করণ-নম্বর (যাতে নতুন APK পুরোনোর ওপর ইনস্টল হয়)
+        run: |
+          if [ -f debug.keystore ]; then mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore && echo "স্থায়ী কী বসানো হয়েছে"; else echo "WARNING - debug.keystore নেই; প্রতিবার নতুন কী তৈরি হবে, ইনস্টলের আগে পুরোনো অ্যাপ মুছতে হবে"; fi
+          sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
       - name: সিঙ্ক
         run: npx cap sync android
 
