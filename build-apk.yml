@@ -1,5 +1,8 @@
 name: APK তৈরি করুন
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -8,6 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KS: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +41,10 @@ jobs:
         run: |
           B="https://adnan1497.github.io/My-bangladesh-app"
           curl -fsSL "$B/MyBangladesh_App.html" -o /tmp/app.html && cp /tmp/app.html www/index.html || echo "Pages থেকে আনা যায়নি — আপলোড করা কপি ব্যবহার হবে"
+          # লোকেশন-ডেটা ও ফন্ট অ্যাপের ভেতরেই রাখা (অফলাইনেও কাজ করবে)
+          curl -fsSL "$B/bangladesh-geo.json" -o www/bangladesh-geo.json || echo "geo পাওয়া যায়নি — অ্যাপ অনলাইন উৎস ব্যবহার করবে"
+          mkdir -p www/fonts
+          for w in 400 500 600 700; do curl -fsSL "$B/fonts/hind-siliguri-$w.woff" -o "www/fonts/hind-siliguri-$w.woff" || echo "ফন্ট $w পাওয়া যায়নি"; done
           grep -c "nativeAlarmSync" www/index.html || echo "WARNING - এই কপিতে নেটিভ-অ্যালার্ম কোড নেই"
 
       - name: অ্যান্ড্রয়েড প্রকল্প বানানো
@@ -50,6 +59,12 @@ jobs:
           pip install pillow
           python3 prepare.py
 
+      - name: স্থায়ী সাইন-কী ও সংস্করণ-নম্বর (যাতে নতুন APK পুরোনোর ওপর ইনস্টল হয়)
+        run: |
+          if [ -f debug.keystore ]; then mkdir -p ~/.android && cp debug.keystore ~/.android/debug.keystore && echo "স্থায়ী কী বসানো হয়েছে"; else echo "WARNING - debug.keystore নেই; প্রতিবার নতুন কী তৈরি হবে, ইনস্টলের আগে পুরোনো অ্যাপ মুছতে হবে"; fi
+          sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
       - name: সিঙ্ক
         run: npx cap sync android
 
@@ -59,8 +74,41 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: নামকরণ
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk amar-bangladesh.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: amar-bangladesh-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: amar-bangladesh.apk
           if-no-files-found: error
+
+      # ওয়েবসাইটের "APK নামান" বাটনের জন্য: সবসময় একই লিংকে সর্বশেষ APK থাকবে
+      - name: রিলিজে APK প্রকাশ
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: আমার বাংলাদেশ — সর্বশেষ APK
+          body: "সর্বশেষ অ্যান্ড্রয়েড APK। ডাউনলোড করে ইনস্টল করুন (অজানা উৎস থেকে ইনস্টলের অনুমতি লাগতে পারে)।"
+          files: amar-bangladesh.apk
+          make_latest: true
+
+      # ---- Play Store-এর জন্য সাইন করা AAB (ঐচ্ছিক) ----
+      # GitHub Secrets-এ KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD দিলে তবেই চলবে। না দিলে বাদ যাবে।
+      - name: সাইন করা AAB (Play Store)
+        if: ${{ env.KS != '' }}
+        working-directory: android
+        run: |
+          echo "$KS" | base64 -d > app/release.keystore
+          ./gradlew bundleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$PWD/app/release.keystore \
+            -Pandroid.injected.signing.store.password='${{ secrets.KEYSTORE_PASSWORD }}' \
+            -Pandroid.injected.signing.key.alias='${{ secrets.KEY_ALIAS }}' \
+            -Pandroid.injected.signing.key.password='${{ secrets.KEY_PASSWORD }}'
+          cp app/build/outputs/bundle/release/app-release.aab ../amar-bangladesh.aab
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('amar-bangladesh.aab') != '' }}
+        with:
+          name: amar-bangladesh-aab
+          path: amar-bangladesh.aab
