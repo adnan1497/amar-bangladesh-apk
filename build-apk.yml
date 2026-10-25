@@ -31,6 +31,8 @@ jobs:
           for f in index.html privacy.html icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png; do
             if [ -f "$f" ]; then mv "$f" www/; fi
           done
+          # prepare.py scripts/ ফোল্ডারে থাকলেও চলবে (ওটাকেই প্রাধান্য)
+          if [ -f scripts/prepare.py ]; then cp scripts/prepare.py prepare.py; fi
           sed -i 's#^ROOT = .*#ROOT = os.path.dirname(os.path.abspath(__file__))#' prepare.py
           ls -la www
 
