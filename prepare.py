@@ -85,5 +85,8 @@ meta = ('\n        <meta-data android:name="com.google.firebase.messaging.defaul
         '\n        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_icon_config_sample" />')
 if 'default_notification_channel_id' not in m:
     m = re.sub(r'(<application\b[^>]*>)', lambda mo: mo.group(1) + meta, m, count=1)
+# টেক্সট-টু-স্পিচ (পড়ে শোনান): অ্যান্ড্রয়েড ১১+ এ TTS ইঞ্জিন দেখতে পাওয়ার অনুমতি
+if 'TTS_SERVICE' not in m:
+    m = m.replace('<application', '<queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n    <application', 1)
 open(MAN, 'w', encoding='utf-8').write(m)
 print('prepare ok')
