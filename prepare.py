@@ -73,8 +73,8 @@ for d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']:
 
 # ---------- অনুমতি ----------
 m = open(MAN, encoding='utf-8').read()
-need = ['android.permission.POST_NOTIFICATIONS', 'android.permission.SCHEDULE_EXACT_ALARM', 'android.permission.USE_EXACT_ALARM',
-        'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.VIBRATE', 'android.permission.WAKE_LOCK', 'android.permission.USE_FULL_SCREEN_INTENT', 'android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION', 'com.android.alarm.permission.SET_ALARM']
+need = ['android.permission.POST_NOTIFICATIONS', 'android.permission.SCHEDULE_EXACT_ALARM',
+        'android.permission.RECEIVE_BOOT_COMPLETED', 'android.permission.VIBRATE', 'android.permission.WAKE_LOCK', 'android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION', 'com.android.alarm.permission.SET_ALARM']
 add = ''.join('\n    <uses-permission android:name="%s" />' % p for p in need if p not in m)
 if 'android.permission.INTERNET' in m:
     m = re.sub(r'(<uses-permission android:name="android.permission.INTERNET"\s*/>)', r'\1' + add.replace('\\', '\\\\'), m, count=1)
@@ -108,6 +108,7 @@ public class AmarAlarmStore {
     static final String PREF = "amar_alarms";
     static final String KEY = "list";
     static final String ACT_RING = "__PK__.AMAR_RING";
+    static final String KEY_MISSED = "missed";
 
     static PendingIntent opIntent(Context c, int id, String title, String body) {
         Intent i = new Intent(c, AmarAlarmReceiver.class);
@@ -127,7 +128,18 @@ public class AmarAlarmStore {
             int f = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= 23) f |= PendingIntent.FLAG_IMMUTABLE;
             PendingIntent show = PendingIntent.getActivity(c, 0, launch, f);
-            am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), opIntent(c, id, title, body));
+            PendingIntent op = opIntent(c, id, title, body);
+            boolean exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms();
+            if (exact) {
+                try {
+                    am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, show), op);
+                    return;
+                } catch (SecurityException se) {
+                    // অনুমতি নেই: নিচের সাধারণ পদ্ধতিতে যাবে
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, op);
+            else am.set(AlarmManager.RTC_WAKEUP, at, op);
         } catch (Exception e) {
         }
     }
@@ -159,8 +171,10 @@ public class AmarAlarmStore {
         try {
             for (int k = 0; k < old.length(); k++) {
                 JSONObject o = old.getJSONObject(k);
-                if (group.equals(o.optString("g"))) cancelOne(c, o.getInt("id"));
-                else keep.put(o);
+                if (group.equals(o.optString("g"))) {
+                    cancelOne(c, o.getInt("id"));
+                    if (o.getLong("at") < System.currentTimeMillis() - 90000L) addMissed(c, o);
+                } else keep.put(o);
             }
             long now = System.currentTimeMillis();
             int n = 0;
@@ -213,6 +227,42 @@ public class AmarAlarmStore {
             save(c, keep);
         } catch (Exception e) {
         }
+    }
+
+    /** যে অ্যালার্মের সময় পেরিয়ে গেছে অথচ বাজেনি (ফোন অ্যাপ মেরে ফেলেছিল) */
+    static void addMissed(Context c, JSONObject o) {
+        try {
+            SharedPreferences p = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+            JSONArray m = new JSONArray(p.getString(KEY_MISSED, "[]"));
+            if (m.length() < 50) m.put(o);
+            p.edit().putString(KEY_MISSED, m.toString()).apply();
+        } catch (Exception e) {
+        }
+    }
+
+    /** বাজেনি এমন অ্যালার্মগুলোর তালিকা নিয়ে তালিকা খালি করে */
+    static JSONArray takeMissed(Context c) {
+        JSONArray out = new JSONArray();
+        long now = System.currentTimeMillis();
+        try {
+            SharedPreferences p = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+            JSONArray m = new JSONArray(p.getString(KEY_MISSED, "[]"));
+            for (int k = 0; k < m.length(); k++) {
+                JSONObject o = m.getJSONObject(k);
+                if (o.getLong("at") > now - 12L * 3600000L) out.put(o);
+            }
+            JSONArray a = load(c), keep = new JSONArray();
+            for (int k = 0; k < a.length(); k++) {
+                JSONObject o = a.getJSONObject(k);
+                if (o.getLong("at") < now - 90000L) {
+                    if (o.getLong("at") > now - 12L * 3600000L) out.put(o);
+                } else keep.put(o);
+            }
+            save(c, keep);
+            p.edit().putString(KEY_MISSED, "[]").apply();
+        } catch (Exception e) {
+        }
+        return out;
     }
 }
 ''',
@@ -297,7 +347,6 @@ public class AmarAlarmReceiver extends BroadcastReceiver {
                 .setContentTitle(title)
                 .setContentText(body)
                 .setContentIntent(open)
-                .setFullScreenIntent(open, true)
                 .setAutoCancel(true)
                 .setOngoing(false)
                 .setCategory(Notification.CATEGORY_ALARM)
@@ -334,6 +383,7 @@ public class AmarBootReceiver extends BroadcastReceiver {
     'AmarAlarmPlugin': r'''package __PK__;
 
 import android.content.Intent;
+import android.os.Build;
 import android.provider.AlarmClock;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -366,6 +416,41 @@ public class AmarAlarmPlugin extends Plugin {
     public void cancelGroup(PluginCall call) {
         AmarAlarmStore.replaceGroup(getContext(), call.getString("group", "alarm"), new JSArray());
         call.resolve();
+    }
+
+    @PluginMethod
+    public void deviceInfo(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("brand", Build.MANUFACTURER);
+        r.put("model", Build.MODEL);
+        r.put("sdk", Build.VERSION.SDK_INT);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void exactAllowed(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean ok = true;
+        if (Build.VERSION.SDK_INT >= 31) {
+            android.app.AlarmManager am = (android.app.AlarmManager) getContext().getSystemService(android.content.Context.ALARM_SERVICE);
+            ok = am.canScheduleExactAlarms();
+        }
+        r.put("ok", ok);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void takeMissed(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("items", AmarAlarmStore.takeMissed(getContext()));
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void openSettings(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("ok", AmarSettings.open(getContext(), call.getString("type", "app")));
+        call.resolve(r);
     }
 
     /** ফোনের নিজস্ব ঘড়ির অ্যাপে অ্যালার্ম বসানো (ঐচ্ছিক ব্যাকআপ) */
@@ -402,6 +487,58 @@ public class AmarAlarmPlugin extends Plugin {
     }
 }
 ''',
+    'AmarSettings': r'''package __PK__;
+
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+
+/** ফোনের ঠিক সেটিংস-পাতা খুলে দেয় (অটো-স্টার্ট / ব্যাটারি / অ্যাপের তথ্য) */
+public class AmarSettings {
+    static boolean start(Context c, Intent i) {
+        try {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            c.startActivity(i);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static boolean open(Context c, String type) {
+        if ("exact".equals(type)) {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                Intent e = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.fromParts("package", c.getPackageName(), null));
+                if (start(c, e)) return true;
+            }
+        } else if ("battery".equals(type)) {
+            if (start(c, new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))) return true;
+        } else if ("autostart".equals(type)) {
+            String[][] list = {
+                {"com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"},
+                {"com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"},
+                {"com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"},
+                {"com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"},
+                {"com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"},
+                {"com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"},
+                {"com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"},
+                {"com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"},
+                {"com.transsion.phonemaster", "com.itel.autobootmanager.activity.AutoBootMgrActivity"},
+                {"com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"}
+            };
+            for (int k = 0; k < list.length; k++) {
+                Intent x = new Intent();
+                x.setComponent(new ComponentName(list[k][0], list[k][1]));
+                if (start(c, x)) return true;
+            }
+        }
+        Intent d = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", c.getPackageName(), null));
+        return start(c, d);
+    }
+}
+''',
 }
 mains = glob.glob(os.path.join(ROOT, 'android/app/src/main/java/**/MainActivity.java'), recursive=True)
 if mains:
@@ -432,11 +569,25 @@ public class MainActivity extends BridgeActivity {
             '\n                <action android:name="android.intent.action.TIMEZONE_CHANGED" />'
             '\n            </intent-filter>'
             '\n        </receiver>\n    ') % (pk, pk)
+    if 'com.miui.securitycenter' not in m:
+        pkgs = ['com.miui.securitycenter', 'com.coloros.safecenter', 'com.oppo.safe', 'com.iqoo.secure', 'com.vivo.permissionmanager',
+                'com.huawei.systemmanager', 'com.samsung.android.lool', 'com.transsion.phonemaster', 'com.letv.android.letvsafe']
+        q = '<queries>' + ''.join('<package android:name="%s" />' % x for x in pkgs) + '</queries>\n    '
+        m = m.replace('<application', q + '<application', 1)
     if 'AmarAlarmReceiver' not in m:
         m = m.replace('</application>', recv + '</application>', 1)
     print('AmarAlarm native ok', pk)
 else:
     print('WARNING: MainActivity.java পাওয়া যায়নি')
+
+# ---------- নিরাপত্তা: ব্যাকআপ বন্ধ, খোলা-HTTP বন্ধ ----------
+m = re.sub(r'android:allowBackup="[^"]*"', 'android:allowBackup="false"', m)
+if 'android:allowBackup' not in m:
+    m = re.sub(r'(<application\b)', r'\1 android:allowBackup="false"', m, count=1)
+if 'usesCleartextTraffic' not in m:
+    m = re.sub(r'(<application\b)', r'\1 android:usesCleartextTraffic="false"', m, count=1)
+if 'android:density' not in m and 'configChanges="' in m:
+    m = re.sub(r'configChanges="([^"]*)"', lambda mo: 'configChanges="%s|density"' % mo.group(1) if 'density' not in mo.group(1) else mo.group(0), m, count=1)
 
 open(MAN, 'w', encoding='utf-8').write(m)
 print('prepare ok')
